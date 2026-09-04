@@ -3,9 +3,13 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+
+# Make the repo root importable when run as `python scripts/build_dataset.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.alignment.trade_aligner import KOLTrade, TradeAligner
 from src.chan.chan_engine import SimpleChanEngine

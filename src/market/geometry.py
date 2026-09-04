@@ -2,9 +2,23 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
+
+
+def _as_aware_utc(dt: datetime) -> datetime:
+    """Normalize to tz-aware UTC, interpreting naive datetimes as UTC."""
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _close_times_aware_utc(close_times: pd.Series) -> pd.Series:
+    """Normalize a close_time series to tz-aware UTC (naive values assumed UTC)."""
+    if close_times.dt.tz is None:
+        return close_times.dt.tz_localize("UTC")
+    return close_times.dt.tz_convert("UTC")
 
 
 @dataclass(slots=True)
@@ -29,7 +43,10 @@ class GeometryFeatureExtractor:
 
         causal = candles.copy()
         if as_of_timestamp is not None and "close_time" in causal.columns:
-            causal = causal[causal["close_time"] < as_of_timestamp]
+            # Normalize both sides so naive/aware mixes compare by instant
+            # instead of raising a pandas TypeError.
+            mask = _close_times_aware_utc(causal["close_time"]) < _as_aware_utc(as_of_timestamp)
+            causal = causal[mask]
         causal = causal.tail(self.lookback)
         if causal.empty:
             return self.extract(pd.DataFrame(), as_of_timestamp=None)
@@ -44,7 +61,8 @@ class GeometryFeatureExtractor:
         slope = (last_close - first_close) / max(len(causal) - 1, 1)
         angle = math.degrees(math.atan(slope))
 
-        distance_from_current_price = last_close - resistance_line
+        # Distance from the current price up to the resistance line (>= 0).
+        distance_from_current_price = resistance_line - last_close
         touches = float((causal["high"] >= resistance_line * 0.999).sum())
         breaks = float((causal["close"] > resistance_line).sum())
         line_strength = touches - breaks

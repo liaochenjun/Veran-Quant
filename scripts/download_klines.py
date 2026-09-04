@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import datetime
 from pathlib import Path
+
+# Make the repo root importable when run as `python scripts/download_klines.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.data.binance_client import BinanceClient
 from src.data.downloader import BinanceDownloader

@@ -7,7 +7,7 @@ name = "kol-trading-digital-twin"
 version = "0.1.0"
 description = "Point-in-time-safe behavior cloning research skeleton"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
   "pandas>=2.2.0",
   "duckdb>=1.0.0",
@@ -19,3 +19,4 @@ dependencies = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+junit_family = "xunit2"

@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project data artifacts: keep data/ itself trackable, ignore bulky generated files
+data/raw/*.parquet
+data/database/*.duckdb
+data/logs/*.log
+data/logs/*.xml

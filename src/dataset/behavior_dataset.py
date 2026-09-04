@@ -31,29 +31,36 @@ class BehaviorDataset:
         geometry_extractor: GeometryFeatureExtractor,
         geometry_timeframe: str = "15m",
     ) -> "BehaviorDataset":
-        ordered_trades = sorted(trades, key=lambda t: t.timestamp)
+        # Align first so timestamps are normalized to aware UTC before sorting
+        # (sorting mixed naive/aware timestamps would raise TypeError), and so
+        # the sort key matches the timestamp the market state was built from.
+        aligned_trades = [aligner.align_trade(trade) for trade in trades]
+        aligned_trades.sort(key=lambda a: a.market_state.as_of_timestamp)
+
         samples: list[BehaviorSample] = []
-        for trade in ordered_trades:
-            aligned = aligner.align_trade(trade)
+        for aligned in aligned_trades:
+            trade = aligned.trade
+            as_of = aligned.market_state.as_of_timestamp
             market_state = {
                 tf: frame.to_dict(orient="records") for tf, frame in aligned.market_state.frames.items()
             }
             geom_frame = aligned.market_state.frames.get(geometry_timeframe)
             geometry_features = (
-                geometry_extractor.extract(geom_frame, as_of_timestamp=trade.timestamp)
+                geometry_extractor.extract(geom_frame, as_of_timestamp=as_of)
                 if geom_frame is not None
                 else {}
             )
             sample = BehaviorSample(
                 kol=trade.kol,
                 symbol=trade.symbol,
-                timestamp=trade.timestamp.isoformat(),
+                timestamp=as_of.isoformat(),
                 side=trade.normalized_side(),
                 market_state=market_state,
                 chan_state=chan_engine.get_state(
                     symbol=trade.symbol,
                     timeframe=geometry_timeframe,
-                    as_of_timestamp=trade.timestamp,
+                    as_of_timestamp=as_of,
+                    market_state=aligned.market_state,
                 ),
                 geometry_features=geometry_features,
             )

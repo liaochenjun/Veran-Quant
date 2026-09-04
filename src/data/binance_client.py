@@ -11,6 +11,15 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+def _to_utc_millis(dt: datetime) -> int:
+    """Convert to epoch milliseconds, interpreting naive datetimes as UTC."""
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return int(dt.timestamp() * 1000)
+
+
 @dataclass(slots=True)
 class BinanceClient:
     base_url: str = "https://api.binance.com"
@@ -36,9 +45,9 @@ class BinanceClient:
             "limit": limit,
         }
         if start_time is not None:
-            params["startTime"] = int(start_time.replace(tzinfo=timezone.utc).timestamp() * 1000)
+            params["startTime"] = _to_utc_millis(start_time)
         if end_time is not None:
-            params["endTime"] = int(end_time.replace(tzinfo=timezone.utc).timestamp() * 1000)
+            params["endTime"] = _to_utc_millis(end_time)
 
         response = self.session.get(f"{self.base_url}/api/v3/klines", params=params, timeout=30)
         response.raise_for_status()
