@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -54,10 +55,10 @@ def main() -> None:
         geometry_extractor=geometry_extractor,
     )
 
-    output = [sample.__dict__ for sample in dataset.samples]
+    output = [asdict(sample) for sample in dataset.samples]
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
+        json.dump(output, f, ensure_ascii=False, indent=2, default=str)
 
 
 if __name__ == "__main__":
