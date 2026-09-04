@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 @dataclass(slots=True)
 class BinanceClient:
     base_url: str = "https://api.binance.com"
+    session: requests.Session = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.session = requests.Session()
