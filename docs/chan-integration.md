@@ -38,7 +38,8 @@ src/chan/
 ├── chan_adapter.py      # chan.py 隔离层：sys.path bootstrap + Self shim + ChanPyAdapter
 ├── chan_state.py        # ChanState：稳定、可序列化的状态快照（默认值 + mask）
 ├── causal_chan.py       # CausalChanEngine：point-in-time 安全的 ChanEngine 实现
-└── feature_encoder.py   # ChanFeatureEncoder：ChanState -> 数值特征向量
+├── feature_encoder.py   # ChanFeatureEncoder：ChanState -> 数值特征向量
+└── collector.py         # 多周期采集：collect_chan_states / collect_chan_features
 ```
 
 - `ChanPyAdapter`：封装一个 `CChan` 实例（单周期），提供 `feed_bar()`（增量投喂已收盘 K 线）与 `snapshot()`（冻结为 `ChanState`）。外部 API 变化只影响本文件。
@@ -128,7 +129,15 @@ src/chan/
 6. **性能**：`trigger_step` 模式下线段/中枢在笔完成时全量重算，超长历史（如数十万根 1m K 线）首轮投喂较慢；引擎的增量缓存已避免重复投喂。
 7. **买卖点消失**：chan.py 文档明确说明，未确定的买卖点随 K 线新增可能消失或移动 —— 这是缠论多义性的正常表现，也是本项目坚持 point-in-time 快照的原因。
 
-## 12. chan.py 买卖点为什么不能作为 KOL 行为 Ground Truth
+## 12. 接入 BehaviorDataset / 数据管道
+
+- `BehaviorSample` 新增可选字段 `chan_states: dict`（timeframe → ChanState dict），默认空 dict，旧 JSON 数据集与旧调用方完全兼容。
+- `BehaviorDataset.from_trades(..., chan_timeframes=("1m","5m","15m","1h"))`：为每个样本在开单时刻冻结所请求周期（必须是 chan.py 支持级别）的缠论快照；`geometry_timeframe` 的状态复用 `chan_state`，不重复查询。
+- `collector.collect_chan_states(engine, symbol, as_of, timeframes)` / `collect_chan_features(...)`：独立的多周期采集入口（冻结状态 / 平铺 `<tf>__<feature>` 数值特征）。
+- `scripts/build_dataset.py` 已切换为 `CausalChanEngine` 并默认收集全部支持周期；运行前需 `git submodule update --init`。
+- `scripts/train.py` 的基线模型不消费 `chan_states`（占位模型只看 side），但字段已随样本落盘，供未来行为克隆模型直接使用。
+
+## 13. chan.py 买卖点为什么不能作为 KOL 行为 Ground Truth
 
 - 本项目的建模目标是**克隆 KOL 的真实交易行为**（Label = 该 KOL 实际发生的 `LONG` / `SHORT` 动作），不是预测缠论买卖点。
 - chan.py 的买卖点是「某个特定缠论定义 + 特定参数」下的计算产物：不同的分型/笔/线段参数会给出不同结果，未确定买卖点还会消失/漂移。把它当标签会让模型学习一个单一、可变的规则系统，而不是 KOL 行为。

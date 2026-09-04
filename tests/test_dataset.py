@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
+from dataclasses import asdict
 from datetime import datetime, timedelta
 
 import pandas as pd
 import pytest
 
+from chan_test_utils import START, make_storage, zigzag_rows
 from src.alignment.trade_aligner import KOLTrade, TradeAligner
+from src.chan.causal_chan import CausalChanEngine
 from src.chan.chan_engine import SimpleChanEngine
 from src.dataset.behavior_dataset import BehaviorDataset, BehaviorSample
 from src.market.geometry import GeometryFeatureExtractor
@@ -125,6 +129,48 @@ def test_from_trades_missing_geometry_timeframe_is_tolerated():
     dataset = BehaviorDataset.from_trades([trade], aligner, chan_engine, geometry, geometry_timeframe="1h")
 
     assert dataset.samples[0].geometry_features == {}
+
+
+def test_from_trades_multi_timeframe_chan_states(tmp_path):
+    # Real storage + CausalChanEngine: chan_timeframes populates sample.chan_states
+    storage = make_storage(tmp_path)
+    storage.write_klines("BTCUSDT", "5m", zigzag_rows(minutes=5))
+    storage.write_klines("BTCUSDT", "1m", zigzag_rows(minutes=1))
+
+    aligner = TradeAligner(point_in_time=PointInTimeMarketState(storage=storage))
+    chan_engine = CausalChanEngine(storage=storage)
+    geometry = GeometryFeatureExtractor(lookback=10)
+
+    as_of = START + timedelta(hours=3, minutes=20)  # after all 40 5m bars
+    trade = KOLTrade(kol="A", symbol="BTCUSDT", timestamp=as_of, side="LONG", entry_price=100.0)
+    dataset = BehaviorDataset.from_trades(
+        [trade],
+        aligner,
+        chan_engine,
+        geometry,
+        geometry_timeframe="5m",
+        chan_timeframes=("5m", "1m"),
+    )
+
+    sample = dataset.samples[0]
+    assert set(sample.chan_states) == {"5m", "1m"}
+    # geometry timeframe state is reused, not queried twice
+    assert sample.chan_states["5m"] == sample.chan_state
+    assert sample.chan_states["5m"]["bi_count"] >= 1
+    assert sample.chan_states["1m"]["supported"] is True
+    # sample stays JSON-serializable (same default=str convention as the builder script)
+    json.dumps(asdict(sample), default=str)
+
+
+def test_from_trades_without_chan_timeframes_keeps_old_behavior():
+    # chan_timeframes defaults to None: chan_states stays empty
+    storage, aligner, chan_engine = _make_components(_candles())
+    geometry = GeometryFeatureExtractor(lookback=10)
+
+    trade = _make_trade("A", datetime(2026, 8, 20, 14, 0), "LONG")
+    dataset = BehaviorDataset.from_trades([trade], aligner, chan_engine, geometry)
+
+    assert dataset.samples[0].chan_states == {}
 
 
 def _sample(timestamp: str) -> BehaviorSample:

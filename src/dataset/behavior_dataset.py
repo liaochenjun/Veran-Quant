@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.alignment.trade_aligner import KOLTrade, TradeAligner
 from src.chan.chan_engine import ChanEngine
@@ -16,6 +16,9 @@ class BehaviorSample:
     market_state: dict
     chan_state: dict
     geometry_features: dict
+    # Optional multi-timeframe chan snapshots, keyed by timeframe
+    # (e.g. {"1m": {...}, "5m": {...}}); empty unless requested.
+    chan_states: dict = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -30,6 +33,7 @@ class BehaviorDataset:
         chan_engine: ChanEngine,
         geometry_extractor: GeometryFeatureExtractor,
         geometry_timeframe: str = "15m",
+        chan_timeframes: tuple[str, ...] | None = None,
     ) -> "BehaviorDataset":
         # Align first so timestamps are normalized to aware UTC before sorting
         # (sorting mixed naive/aware timestamps would raise TypeError), and so
@@ -50,19 +54,34 @@ class BehaviorDataset:
                 if geom_frame is not None
                 else {}
             )
+            chan_state = chan_engine.get_state(
+                symbol=trade.symbol,
+                timeframe=geometry_timeframe,
+                as_of_timestamp=as_of,
+                market_state=aligned.market_state,
+            )
+            chan_states: dict[str, dict] = {}
+            if chan_timeframes:
+                for timeframe in chan_timeframes:
+                    # Reuse the geometry-timeframe state instead of querying twice.
+                    chan_states[timeframe] = (
+                        chan_state
+                        if timeframe == geometry_timeframe
+                        else chan_engine.get_state(
+                            symbol=trade.symbol,
+                            timeframe=timeframe,
+                            as_of_timestamp=as_of,
+                        )
+                    )
             sample = BehaviorSample(
                 kol=trade.kol,
                 symbol=trade.symbol,
                 timestamp=as_of.isoformat(),
                 side=trade.normalized_side(),
                 market_state=market_state,
-                chan_state=chan_engine.get_state(
-                    symbol=trade.symbol,
-                    timeframe=geometry_timeframe,
-                    as_of_timestamp=as_of,
-                    market_state=aligned.market_state,
-                ),
+                chan_state=chan_state,
                 geometry_features=geometry_features,
+                chan_states=chan_states,
             )
             samples.append(sample)
         return cls(samples=samples)

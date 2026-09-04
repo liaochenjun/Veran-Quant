@@ -39,8 +39,10 @@ This applies to all supported timeframes:
 - `src/data`: Binance client, downloader, DuckDB/Parquet storage.
 - `src/alignment`: normalized trade schema and trade alignment.
 - `src/market`: point-in-time access and geometry/market feature modules.
-- `src/chan`: Chan engine abstraction (`SimpleChanEngine` placeholder).
-- `src/dataset`: behavior dataset + chronological split.
+- `src/chan`: causal point-in-time chan engine (chan.py adapter, ChanState,
+  feature encoder); `SimpleChanEngine` remains as a lightweight fallback.
+- `src/dataset`: behavior dataset (incl. optional multi-timeframe chan
+  snapshots per sample) + chronological split.
 - `src/models`: model interface/baseline and replay validator.
 - `scripts`: download data, build dataset, train baseline.
 - `tests`: leakage-focused unit tests.
@@ -51,7 +53,10 @@ Install dependencies:
 
 ```bash
 pip install -r requirements.txt
+git submodule update --init -- third_party/chan.py
 ```
+
+(chan.py is integrated as a pinned git submodule; see `docs/chan-integration.md`.)
 
 Run tests:
 
@@ -69,7 +74,8 @@ python scripts/download_klines.py \
   --end 2026-08-02T00:00:00
 ```
 
-Build dataset from normalized trade CSV:
+Build dataset from normalized trade CSV (each sample freezes the chan state
+of every supported timeframe — 1m/5m/15m/1h — at the trade moment):
 
 ```bash
 python scripts/build_dataset.py --trades-csv data/processed/trades.csv --output data/processed/behavior_dataset.json

@@ -12,7 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.alignment.trade_aligner import KOLTrade, TradeAligner
-from src.chan.chan_engine import SimpleChanEngine
+from src.chan.chan_adapter import SUPPORTED_TIMEFRAMES
+from src.chan.causal_chan import CausalChanEngine
 from src.data.storage import DuckDBStorage
 from src.dataset.behavior_dataset import BehaviorDataset
 from src.market.geometry import GeometryFeatureExtractor
@@ -48,7 +49,9 @@ def main() -> None:
     storage = DuckDBStorage(root_dir=Path("data/raw"), database_path=Path("data/database/market.duckdb"))
     pit = PointInTimeMarketState(storage=storage)
     aligner = TradeAligner(point_in_time=pit)
-    chan_engine = SimpleChanEngine(point_in_time=pit)
+    # Causal point-in-time chan engine (see docs/chan-integration.md);
+    # requires the chan.py submodule: git submodule update --init
+    chan_engine = CausalChanEngine(storage=storage)
     geometry_extractor = GeometryFeatureExtractor()
 
     trades = load_trades(Path(args.trades_csv))
@@ -57,6 +60,7 @@ def main() -> None:
         aligner=aligner,
         chan_engine=chan_engine,
         geometry_extractor=geometry_extractor,
+        chan_timeframes=SUPPORTED_TIMEFRAMES,
     )
 
     output = [asdict(sample) for sample in dataset.samples]
