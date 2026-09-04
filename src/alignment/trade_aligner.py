@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from src.market.point_in_time import MarketState, PointInTimeMarketState
@@ -42,6 +42,10 @@ class TradeAligner:
 
     def align_trade(self, trade: KOLTrade) -> AlignedTrade:
         trade.normalized_side()
+        if trade.timestamp.tzinfo is None or trade.timestamp.tzinfo.utcoffset(trade.timestamp) is None:
+            trade.timestamp = trade.timestamp.replace(tzinfo=timezone.utc)
+        else:
+            trade.timestamp = trade.timestamp.astimezone(timezone.utc)
         market_state = self.point_in_time.get_market_state(
             symbol=trade.symbol,
             as_of_timestamp=trade.timestamp,
