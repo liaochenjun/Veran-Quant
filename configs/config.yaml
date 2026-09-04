@@ -1,0 +1,21 @@
+project:
+  name: KOL Trading Digital Twin
+
+paths:
+  raw_data: data/raw
+  processed_data: data/processed
+  database: data/database/market.duckdb
+
+market:
+  exchange: binance
+  timeframes: ["1m", "5m", "15m", "1h", "4h"]
+  lookback_candles: 300
+
+dataset:
+  split:
+    train: 0.70
+    validation: 0.15
+    test: 0.15
+
+point_in_time:
+  enforce_strict_close_before_trade: true

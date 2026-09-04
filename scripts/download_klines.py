@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+import argparse
+from datetime import datetime
+from pathlib import Path
+
+from src.data.binance_client import BinanceClient
+from src.data.downloader import BinanceDownloader
+from src.data.storage import DuckDBStorage
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Download Binance historical klines")
+    parser.add_argument("--symbol", required=True)
+    parser.add_argument("--timeframe", required=True, choices=["1m", "5m", "15m", "1h", "4h"])
+    parser.add_argument("--start", required=True, help="ISO datetime")
+    parser.add_argument("--end", required=True, help="ISO datetime")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    storage = DuckDBStorage(root_dir=Path("data/raw"), database_path=Path("data/database/market.duckdb"))
+    downloader = BinanceDownloader(client=BinanceClient(), storage=storage)
+    downloader.download_historical_klines(
+        symbol=args.symbol,
+        timeframe=args.timeframe,
+        start_time=datetime.fromisoformat(args.start),
+        end_time=datetime.fromisoformat(args.end),
+    )
+
+
+if __name__ == "__main__":
+    main()
