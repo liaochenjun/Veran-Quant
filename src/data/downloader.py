@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -14,6 +15,8 @@ logger = logging.getLogger(__name__)
 class BinanceDownloader:
     client: BinanceClient
     storage: DuckDBStorage
+    # Optional pacing between requests to stay comfortably under rate limits.
+    request_interval: float = 0.0
 
     def download_historical_klines(
         self,
@@ -40,6 +43,8 @@ class BinanceDownloader:
             total += len(rows)
             latest_open_time = rows[-1]["open_time"]
             current = latest_open_time + timedelta(milliseconds=1)
+            if self.request_interval > 0:
+                time.sleep(self.request_interval)
 
         logger.info("Downloaded %s klines for %s %s", total, symbol, timeframe)
         return total

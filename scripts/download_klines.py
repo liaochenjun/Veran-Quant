@@ -19,13 +19,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeframe", required=True, choices=["1m", "5m", "15m", "1h", "4h"])
     parser.add_argument("--start", required=True, help="ISO datetime")
     parser.add_argument("--end", required=True, help="ISO datetime")
+    parser.add_argument(
+        "--request-interval", type=float, default=0.0,
+        help="sleep seconds between requests to stay under rate limits (default: 0)",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     storage = DuckDBStorage(root_dir=Path("data/raw"), database_path=Path("data/database/market.duckdb"))
-    downloader = BinanceDownloader(client=BinanceClient(), storage=storage)
+    downloader = BinanceDownloader(
+        client=BinanceClient(), storage=storage, request_interval=args.request_interval
+    )
     downloader.download_historical_klines(
         symbol=args.symbol,
         timeframe=args.timeframe,

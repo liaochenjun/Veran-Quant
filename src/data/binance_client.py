@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
@@ -9,6 +10,10 @@ from typing import Optional
 import requests
 
 logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 5
+RETRY_BACKOFF_SECONDS = 2.0
+RETRYABLE_STATUS_CODES = (429, 418)
 
 
 def _to_utc_millis(dt: datetime) -> int:
@@ -49,7 +54,23 @@ class BinanceClient:
         if end_time is not None:
             params["endTime"] = _to_utc_millis(end_time)
 
-        response = self.session.get(f"{self.base_url}/api/v3/klines", params=params, timeout=30)
+        # Bulk downloads can hit Binance rate limits (HTTP 429 / ban 418);
+        # retry with the server-provided Retry-After or linear backoff.
+        response: Optional[requests.Response] = None
+        for attempt in range(MAX_RETRIES):
+            response = self.session.get(f"{self.base_url}/api/v3/klines", params=params, timeout=30)
+            if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES - 1:
+                retry_after = float(response.headers.get("Retry-After", 0))
+                delay = max(retry_after, RETRY_BACKOFF_SECONDS * (attempt + 1))
+                logger.warning(
+                    "Rate limited (HTTP %s) for %s %s, retrying in %.1fs (attempt %d/%d)",
+                    response.status_code, symbol, interval, delay, attempt + 2, MAX_RETRIES,
+                )
+                time.sleep(delay)
+                continue
+            break
+
+        assert response is not None
         response.raise_for_status()
         payload = response.json()
         logger.info("Fetched %s klines for %s %s", len(payload), symbol, interval)

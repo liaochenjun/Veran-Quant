@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+import requests
+
 from src.data.binance_client import BinanceClient, _to_utc_millis
 
 KLINE = [
@@ -21,6 +24,9 @@ KLINE = [
 
 
 class StubResponse:
+    status_code = 200
+    headers: dict = {}
+
     def __init__(self, payload):
         self._payload = payload
 
@@ -29,6 +35,17 @@ class StubResponse:
 
     def json(self):
         return self._payload
+
+
+class RateLimitedResponse:
+    status_code = 429
+    headers = {"Retry-After": "0"}
+
+    def raise_for_status(self):
+        raise requests.HTTPError("429 Client Error")
+
+    def json(self):
+        return []
 
 
 class StubSession:
@@ -40,6 +57,19 @@ class StubSession:
     def get(self, url, params=None, timeout=None):
         self.calls.append((url, params, timeout))
         return StubResponse(self._payload)
+
+
+class ScriptedSession:
+    """Returns a scripted response per call (oldest first)."""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.headers = {}
+        self.calls: list[tuple[str, dict, int]] = []
+
+    def get(self, url, params=None, timeout=None):
+        self.calls.append((url, params, timeout))
+        return self._responses.pop(0)
 
 
 def _make_client() -> BinanceClient:
@@ -101,3 +131,28 @@ def test_to_utc_millis_helper():
     assert _to_utc_millis(naive) == int(naive.replace(tzinfo=timezone.utc).timestamp() * 1000)
     aware = datetime(2026, 8, 20, 22, 0, 0, tzinfo=timezone(timedelta(hours=8)))
     assert _to_utc_millis(aware) == _to_utc_millis(naive)
+
+
+def test_get_klines_retries_on_rate_limit(monkeypatch):
+    sleeps: list[float] = []
+    monkeypatch.setattr("time.sleep", sleeps.append)
+
+    client = BinanceClient()
+    client.session = ScriptedSession([RateLimitedResponse(), StubResponse([KLINE])])
+    rows = client.get_klines("BTCUSDT", "1m")
+
+    assert len(rows) == 1
+    assert len(client.session.calls) == 2  # one 429, then success
+    assert len(sleeps) == 1
+    assert sleeps[0] >= 2.0  # linear backoff floor (Retry-After=0)
+
+
+def test_get_klines_gives_up_after_max_retries(monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda s: None)
+
+    client = BinanceClient()
+    client.session = ScriptedSession([RateLimitedResponse() for _ in range(5)])
+    with pytest.raises(requests.HTTPError):
+        client.get_klines("BTCUSDT", "1m")
+
+    assert len(client.session.calls) == 5

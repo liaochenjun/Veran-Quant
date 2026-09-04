@@ -222,3 +222,6 @@ data/raw/*.parquet
 data/database/*.duckdb
 data/logs/*.log
 data/logs/*.xml
+# KOL trading history and derived datasets stay local (not committed)
+data/raw/kols/
+data/processed/
