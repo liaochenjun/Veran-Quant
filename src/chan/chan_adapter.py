@@ -82,7 +82,7 @@ def _to_ctime(dt: datetime) -> CTime:
     disables the A-share "hour==minute==0 means end of day" convention,
     which is wrong for 24/7 crypto markets.
     """
-    if dt.tzinfo is not None and dt.utcoffset(dt) is not None:
+    if dt.tzinfo is not None and dt.utcoffset() is not None:
         dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
     return CTime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, auto=False)
 

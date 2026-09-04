@@ -159,6 +159,23 @@ def test_determinism_same_input_same_state(storage):
     assert a == b
 
 
+def test_engine_handles_tz_aware_storage_data(tmp_path):
+    # Regression: aware-UTC bars (the real Binance pipeline) hit a
+    # datetime.utcoffset(dt) TypeError in the adapter before this fix.
+    storage = make_storage(tmp_path)
+    rows = zigzag_rows()
+    for row in rows:
+        row["open_time"] = row["open_time"].replace(tzinfo=timezone.utc)
+        row["close_time"] = row["close_time"].replace(tzinfo=timezone.utc)
+    storage.write_klines("AWARE", "5m", rows)
+
+    state = CausalChanEngine(storage=storage).get_state("AWARE", "5m", _as_of_after_n_bars(40))
+
+    assert state["supported"] is True
+    assert state["bi_count"] >= 1
+    assert state["last_bar_close_time"] == _utc_iso(bar_close(39))
+
+
 # 10. Feature encoder -----------------------------------------------------------
 
 def test_feature_encoder_key_order_and_masks(engine):
