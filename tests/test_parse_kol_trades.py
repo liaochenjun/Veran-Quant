@@ -5,7 +5,13 @@ import csv
 import pytest
 
 from scripts.build_dataset import load_trades
-from scripts.parse_kol_trades import FIELDS, ParseError, parse_positions
+from scripts.parse_kol_trades import (
+    FIELDS,
+    ParseError,
+    detect_format,
+    parse_event_stream,
+    parse_positions,
+)
 
 FULL_BLOCK = """\
 ZECUSDT
@@ -118,3 +124,65 @@ def test_parser_output_is_loadable_by_dataset_builder(tmp_path):
     assert loaded[0].side == "LONG"
     assert loaded[0].entry_price == 898.68
     assert loaded[1].symbol == "MRVLUSDT"
+
+
+EVENT_STREAM = """\
+09-04, 23:09:09
+Open Long
+Open a Long position of SKHYNIXUSDT Perpetual at a price of 1,243.29364 USDT, amount of 240.96 SKHYNIX for a total value of 299,584.03578 USDT.
+09-04, 22:43:29
+Close Long
+Close a Long position of ZECUSDT Perpetual at a price of 974.19 USDT, amount of 127.605 ZEC for a total value of 124,311.65 USDT, Realized PNL is 9,635.82 USDT.
+09-04, 22:08:40
+Open Short
+Open a Short position of ZECUSDT Perpetual at a price of 986.71 USDT, amount of 122.600 ZEC for a total value of 120,970.93 USDT.
+"""
+
+
+def test_parse_event_stream_opens_become_samples_closes_are_listed():
+    trades, closes, warnings = parse_event_stream(EVENT_STREAM, kol="aoying_capital", year=2026)
+
+    assert warnings == []
+    assert len(trades) == 2
+    assert trades[0]["symbol"] == "SKHYNIXUSDT"
+    assert trades[0]["side"] == "LONG"
+    assert trades[0]["timestamp"] == "2026-09-04 23:09:09"
+    assert trades[0]["entry_price"] == 1243.29364
+    assert trades[0]["position_size"] == 240.96
+    assert trades[1]["side"] == "SHORT"
+
+    assert len(closes) == 1
+    assert closes[0]["symbol"] == "ZECUSDT"
+    assert closes[0]["pnl"] == 9635.82
+    assert closes[0]["total_value"] == 124311.65
+
+
+def test_parse_event_stream_year_rollover():
+    text = """\
+01-01, 00:05:00
+Open Long
+Open a Long position of BTCUSDT Perpetual at a price of 100.0 USDT, amount of 1.0 BTC for a total value of 100.0 USDT.
+12-31, 23:55:00
+Open Short
+Open a Short position of BTCUSDT Perpetual at a price of 99.0 USDT, amount of 1.0 BTC for a total value of 99.0 USDT.
+"""
+    trades, _, warnings = parse_event_stream(text, kol="k", year=2026)
+    # newest-first: 12-31 event belongs to the previous year (2025)
+    assert trades[0]["timestamp"].startswith("2026-01-01")
+    assert trades[1]["timestamp"].startswith("2025-12-31")
+    assert warnings == ["year rollover at 12-31 -> 2025"]
+
+
+def test_detect_format():
+    assert detect_format(FULL_BLOCK) == "position"
+    assert detect_format(EVENT_STREAM) == "event"
+
+
+def test_parse_event_stream_mismatched_action_raises():
+    text = """\
+09-04, 23:09:09
+Open Long
+Close a Long position of ZECUSDT Perpetual at a price of 974.19 USDT, amount of 127.605 ZEC for a total value of 124,311.65 USDT, Realized PNL is 9,635.82 USDT.
+"""
+    with pytest.raises(ParseError):
+        parse_event_stream(text, kol="k", year=2026)
