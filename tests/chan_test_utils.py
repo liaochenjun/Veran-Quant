@@ -9,12 +9,13 @@ from src.data.storage import DuckDBStorage
 START = datetime(2026, 8, 1, 0, 0)
 
 
-def zigzag_rows(n: int = 40, minutes: int = 5) -> list[dict]:
+def zigzag_rows(n: int = 40, minutes: int = 5, start: datetime | None = None) -> list[dict]:
     """Deterministic zigzag series: direction flips every 6 bars."""
     rows: list[dict] = []
     price, direction = 100.0, 1
+    base = start or START
     for i in range(n):
-        open_time = START + timedelta(minutes=minutes * i)
+        open_time = base + timedelta(minutes=minutes * i)
         open_ = price
         close = price + 1.0 * direction
         rows.append(

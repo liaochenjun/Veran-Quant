@@ -58,7 +58,18 @@ class BinanceClient:
         # retry with the server-provided Retry-After or linear backoff.
         response: Optional[requests.Response] = None
         for attempt in range(MAX_RETRIES):
-            response = self.session.get(f"{self.base_url}/api/v3/klines", params=params, timeout=30)
+            try:
+                response = self.session.get(f"{self.base_url}/api/v3/klines", params=params, timeout=30)
+            except requests.exceptions.RequestException as exc:
+                if attempt >= MAX_RETRIES - 1:
+                    raise
+                delay = RETRY_BACKOFF_SECONDS * (attempt + 1)
+                logger.warning(
+                    "Binance network error (%s) for %s %s, retrying in %.1fs (attempt %d/%d)",
+                    exc.__class__.__name__, symbol, interval, delay, attempt + 2, MAX_RETRIES,
+                )
+                time.sleep(delay)
+                continue
             if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES - 1:
                 retry_after = float(response.headers.get("Retry-After", 0))
                 delay = max(retry_after, RETRY_BACKOFF_SECONDS * (attempt + 1))

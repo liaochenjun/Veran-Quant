@@ -218,10 +218,14 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Project data artifacts: keep data/ itself trackable, ignore bulky generated files
-data/raw/*.parquet
+data/raw/**/*.parquet
 data/database/*.duckdb
 data/logs/*.log
 data/logs/*.xml
 # KOL trading history and derived datasets stay local (not committed)
 data/raw/kols/
 data/processed/
+# Model registry artifacts (pickles + local state)
+data/models/
+# Local Claude Code settings
+.claude/

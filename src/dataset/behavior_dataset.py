@@ -20,6 +20,11 @@ class BehaviorSample:
     # (e.g. {"1m": {...}, "5m": {...}}); empty unless requested.
     chan_states: dict = field(default_factory=dict)
 
+    @property
+    def action(self) -> str:
+        """The KOL action at T — this is the LABEL, never an input feature."""
+        return self.side
+
 
 @dataclass(slots=True)
 class BehaviorDataset:

@@ -6,16 +6,29 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from src.dataset.behavior_dataset import BehaviorSample
+from src.models.prediction import Prediction
 
 
 class BehaviorModel(ABC):
     @abstractmethod
     def fit(self, samples: list[BehaviorSample]) -> None:
+        """Train on STATE_AT_T + KOL_ACTION_AT_T pairs (labels allowed here)."""
         raise NotImplementedError
 
     @abstractmethod
     def predict(self, samples: list[BehaviorSample]) -> list[str]:
         raise NotImplementedError
+
+    def predict_proba(self, states: list[dict]) -> list[Prediction]:
+        """Probabilistic prediction from pure INPUT states.
+
+        ``states`` are flat feature dicts built by the StateFeatureAssembler
+        from T-visible data only. Real KOL action must NEVER be accepted
+        here (tests enforce the call sites pass features only).
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement predict_proba"
+        )
 
 
 @dataclass(slots=True)
@@ -35,6 +48,17 @@ class BaselineBehaviorModel(BehaviorModel):
 
     def predict(self, samples: list[BehaviorSample]) -> list[str]:
         return [self.default_side for _ in samples]
+
+    def predict_proba(self, states: list[dict]) -> list[Prediction]:
+        # Majority-class baseline: deterministic probability mass on the
+        # learned default side. Structure matches the real model interface.
+        predictions = []
+        for _ in states:
+            if self.default_side == "LONG":
+                predictions.append(Prediction(1.0, 0.0, "LONG", 1.0))
+            else:
+                predictions.append(Prediction(0.0, 1.0, "SHORT", 1.0))
+        return predictions
 
 
 @dataclass(slots=True)
