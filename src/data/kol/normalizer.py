@@ -20,7 +20,7 @@ import csv
 import json
 import re
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -28,6 +28,11 @@ import pandas as pd
 
 _TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 _SKIP_TOKENS = {"image", "--"}
+
+# KOL platform dumps carry naive wall-clock timestamps in BEIJING time
+# (Asia/Shanghai, UTC+8, no DST). Everything downstream must be UTC, so
+# naive timestamps are converted here: beijing wall clock - 8h = UTC.
+_BEIJING_OFFSET = timedelta(hours=8)
 
 # --------------------------------------------------------------------------
 # Data structures
@@ -93,9 +98,13 @@ _IMPACT_FACTOR_RE = re.compile(r"^影响因子[：:]\s*([0-9.]+)\s*$")
 
 
 def _naive_to_utc(timestamp: str) -> tuple[int, str]:
-    """Parse a naive wall-clock timestamp (assumed UTC, Binance convention)."""
-    dt = datetime.strptime(timestamp, _TIMESTAMP_FORMAT).replace(tzinfo=timezone.utc)
-    return int(dt.timestamp() * 1000), dt.isoformat()
+    """Parse a naive wall-clock timestamp as BEIJING time -> UTC instant."""
+    dt_beijing = datetime.strptime(timestamp, _TIMESTAMP_FORMAT)
+    # attach tzinfo BEFORE .timestamp(): naive.timestamp() would otherwise
+    # be interpreted in the machine's LOCAL timezone (+8 on this host),
+    # silently shifting epoch ms by another 8 hours.
+    dt_utc = (dt_beijing - _BEIJING_OFFSET).replace(tzinfo=timezone.utc)
+    return int(dt_utc.timestamp() * 1000), dt_utc.isoformat()
 
 
 def _to_timestamp_ms(timestamp_utc: str) -> int:
@@ -222,8 +231,8 @@ def parse_position_dump(
         )
 
         if closed_at:
-            closed_dt = datetime.strptime(closed_at, _TIMESTAMP_FORMAT).replace(tzinfo=timezone.utc)
-            opened_dt = datetime.strptime(opened_at, _TIMESTAMP_FORMAT).replace(tzinfo=timezone.utc)
+            closed_dt = datetime.strptime(closed_at, _TIMESTAMP_FORMAT) - _BEIJING_OFFSET
+            opened_dt = datetime.strptime(opened_at, _TIMESTAMP_FORMAT) - _BEIJING_OFFSET
             outcomes.append(
                 TradeOutcome(
                     trader_id=trader_id,
@@ -231,7 +240,7 @@ def parse_position_dump(
                     side=side,
                     opened_at_utc=opened_iso,
                     closed_price=exit_price,
-                    closed_at_utc=closed_dt.isoformat(),
+                    closed_at_utc=closed_dt.isoformat() + "+00:00",
                     pnl=pnl,
                     holding_time_seconds=(closed_dt - opened_dt).total_seconds(),
                     source=source,
@@ -464,8 +473,8 @@ def parse_chinese_position_dump(
             )
         )
         if closed_at:
-            closed_dt = datetime.strptime(closed_at, _TIMESTAMP_FORMAT).replace(tzinfo=timezone.utc)
-            opened_dt = datetime.strptime(opened_at, _TIMESTAMP_FORMAT).replace(tzinfo=timezone.utc)
+            closed_dt = datetime.strptime(closed_at, _TIMESTAMP_FORMAT) - _BEIJING_OFFSET
+            opened_dt = datetime.strptime(opened_at, _TIMESTAMP_FORMAT) - _BEIJING_OFFSET
             outcomes.append(
                 TradeOutcome(
                     trader_id=trader_id,
@@ -473,7 +482,7 @@ def parse_chinese_position_dump(
                     side=side,
                     opened_at_utc=opened_iso,
                     closed_price=exit_price,
-                    closed_at_utc=closed_dt.isoformat(),
+                    closed_at_utc=closed_dt.isoformat() + "+00:00",
                     pnl=pnl,
                     holding_time_seconds=(closed_dt - opened_dt).total_seconds(),
                     source=source,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 from dataclasses import fields
+from datetime import datetime, timezone
 
 import pandas as pd
 import pytest
@@ -69,6 +70,18 @@ def _assert_event_carries_no_outcome(event: NormalizedKOLEvent) -> None:
         assert forbidden not in event.extra
 
 
+def test_naive_timestamps_are_interpreted_as_beijing_time():
+    # Platform dumps carry Beijing wall clock; the pipeline converts to UTC.
+    # 2026-09-03 22:59:07 Beijing = 2026-09-03 14:59:07 UTC
+    events, outcomes, _ = parse_position_dump(FULL_BLOCK, trader_id="aoying_capital")
+    assert events[0].timestamp_utc == "2026-09-03T14:59:07+00:00"
+    assert outcomes[0].closed_at_utc == "2026-09-04T14:43:29+00:00"
+    # epoch ms must match the UTC instant
+    assert events[0].timestamp_ms == int(
+        datetime.fromisoformat("2026-09-03T14:59:07+00:00").timestamp() * 1000
+    )
+
+
 def test_position_dump_separates_events_and_outcomes():
     events, outcomes, warnings = parse_position_dump(FULL_BLOCK, trader_id="aoying_capital")
 
@@ -80,7 +93,7 @@ def test_position_dump_separates_events_and_outcomes():
     assert event.symbol == "ZECUSDT"
     assert event.price == 898.68
     assert event.quantity == 556.327
-    assert event.timestamp_utc == "2026-09-03T22:59:07+00:00"
+    assert event.timestamp_utc == "2026-09-03T14:59:07+00:00"
     assert event.leverage == "2x"
     assert event.margin_mode == "Cross"
     _assert_event_carries_no_outcome(event)
@@ -89,7 +102,7 @@ def test_position_dump_separates_events_and_outcomes():
     outcome = outcomes[0]
     assert outcome.pnl == 45724.41
     assert outcome.closed_price == 981.42
-    assert outcome.closed_at_utc == "2026-09-04T22:43:29+00:00"
+    assert outcome.closed_at_utc == "2026-09-04T14:43:29+00:00"
     assert outcome.holding_time_seconds == pytest.approx(85462.0)
 
 
@@ -114,7 +127,7 @@ def test_trades_rows_join_outcomes_as_metadata_only():
 
     assert len(rows) == 1
     row = rows[0]
-    assert row["timestamp"] == "2026-09-03 22:59:07"  # build_dataset contract format
+    assert row["timestamp"] == "2026-09-03 14:59:07"  # build_dataset contract format
     assert row["side"] == "LONG"
     assert row["entry_price"] == 898.68
     assert row["pnl"] == 45724.41  # metadata column only, never a feature
@@ -196,7 +209,7 @@ def test_outcome_dataset_lookup_and_isolation():
     _, outcomes, _ = parse_position_dump(FULL_BLOCK, trader_id="aoying_capital")
     dataset = OutcomeDataset.from_normalizer(outcomes)
 
-    hit = dataset.lookup("ZECUSDT", "2026-09-03T22:59:07+00:00")
+    hit = dataset.lookup("ZECUSDT", "2026-09-03T14:59:07+00:00")
     assert hit is not None
     assert hit.pnl == 45724.41
     assert dataset.lookup("ZECUSDT", "2099-01-01T00:00:00+00:00") is None
@@ -306,7 +319,7 @@ def test_chinese_position_dump_full_and_partial_variants():
     assert events[0].price == 80240.53
     assert events[0].quantity == 50.888
     assert events[0].leverage == "30x"
-    assert events[0].timestamp_utc == "2026-09-03T22:18:32+00:00"
+    assert events[0].timestamp_utc == "2026-09-03T14:18:32+00:00"
     _assert_event_carries_no_outcome(events[0])
 
     assert events[1].side == "LONG"  # partial close: 部分平仓 status line handled
@@ -315,7 +328,7 @@ def test_chinese_position_dump_full_and_partial_variants():
     # full-close block has an outcome; partial blocks have none
     assert len(outcomes) == 1
     assert outcomes[0].pnl == 31490.16
-    assert outcomes[0].closed_at_utc == "2026-09-04T03:10:00+00:00"
+    assert outcomes[0].closed_at_utc == "2026-09-03T19:10:00+00:00"
 
 
 def test_chinese_event_stream():
@@ -327,7 +340,7 @@ def test_chinese_event_stream():
     assert events[0].side == "LONG"
     assert events[0].price == 90.0
     assert events[0].quantity == 1000.0
-    assert events[0].timestamp_utc == "2026-09-04T20:53:30+00:00"
+    assert events[0].timestamp_utc == "2026-09-04T12:53:30+00:00"
     _assert_event_carries_no_outcome(events[0])
 
     assert len(outcomes) == 1
@@ -355,3 +368,69 @@ def test_auto_dispatch_events():
 
     en_events, en_outcomes, _ = parse_event_stream_auto(EVENT_STREAM, trader_id="aoying_capital", year=2026)
     assert en_events[0].symbol == "SKHYNIXUSDT"
+
+
+# ---------------------------------------------------------------------------
+# Timezone regression: Beijing -> UTC semantics (business-critical)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "beijing, utc",
+    [
+        ("2026-09-03 22:59:07", "2026-09-03T14:59:07+00:00"),
+        ("2026-09-04 22:43:29", "2026-09-04T14:43:29+00:00"),
+        ("2026-09-04 20:53:30", "2026-09-04T12:53:30+00:00"),
+        ("2026-06-03 17:48:45", "2026-06-03T09:48:45+00:00"),
+        # cross-year: Beijing 2026-01-01 00:05 -> UTC 2025-12-31 16:05
+        ("2026-01-01 00:05:00", "2025-12-31T16:05:00+00:00"),
+    ],
+)
+def test_beijing_to_utc_conversion(beijing, utc):
+    from src.data.kol.normalizer import _naive_to_utc
+
+    timestamp_ms, timestamp_utc = _naive_to_utc(beijing)
+    assert timestamp_utc == utc
+    assert timestamp_ms == int(datetime.fromisoformat(utc).timestamp() * 1000)
+
+
+def test_pit_uses_converted_utc_trade_time(tmp_path):
+    # Business chain: KOL platform "2026-09-03 22:59:07" (Beijing)
+    # -> normalizer converts to UTC "2026-09-03 14:59:07" written into the
+    #    trades CSV as naive UTC wall clock
+    # -> aligner treats the naive CSV timestamp as UTC -> T = 14:59:07 UTC
+    # -> bars must satisfy close_time < T (14:59:59 bar excluded).
+    from src.alignment.trade_aligner import KOLTrade, TradeAligner
+    from src.data.storage import DuckDBStorage
+    from src.market.point_in_time import PointInTimeMarketState
+
+    storage = DuckDBStorage(root_dir=tmp_path / "raw", database_path=tmp_path / "db" / "m.duckdb")
+    storage.write_klines("BTCUSDT", "1m", [
+        {
+            "open_time": datetime(2026, 9, 3, 14, 58, tzinfo=timezone.utc),
+            "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 10.0,
+            "close_time": datetime(2026, 9, 3, 14, 58, 59, tzinfo=timezone.utc),
+            "quote_volume": 1000.0, "number_of_trades": 100,
+            "taker_buy_base_volume": 5.0, "taker_buy_quote_volume": 500.0,
+        },
+        {
+            "open_time": datetime(2026, 9, 3, 14, 59, tzinfo=timezone.utc),
+            "open": 100.5, "high": 101.5, "low": 100.0, "close": 101.0, "volume": 12.0,
+            "close_time": datetime(2026, 9, 3, 14, 59, 59, tzinfo=timezone.utc),  # T's own minute
+            "quote_volume": 1200.0, "number_of_trades": 120,
+            "taker_buy_base_volume": 6.0, "taker_buy_quote_volume": 600.0,
+        },
+    ])
+
+    aligner = TradeAligner(point_in_time=PointInTimeMarketState(storage=storage, timeframes=("1m",)))
+    trade = KOLTrade(
+        kol="aoying_capital", symbol="BTCUSDT",
+        timestamp=datetime(2026, 9, 3, 14, 59, 7),  # UTC wall clock from the CSV
+        side="SHORT", entry_price=100.0,
+    )
+    aligned = aligner.align_trade(trade)
+
+    assert aligned.market_state.as_of_timestamp == datetime(2026, 9, 3, 14, 59, 7, tzinfo=timezone.utc)
+    one_minute = aligned.market_state.frames["1m"]
+    assert len(one_minute) == 1  # 14:59:59 bar is excluded (close_time > T)
+    assert one_minute.iloc[0]["close_time"] == datetime(2026, 9, 3, 14, 58, 59, tzinfo=timezone.utc)

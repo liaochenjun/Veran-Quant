@@ -64,13 +64,13 @@ def test_parse_full_block():
     trade = trades[0]
     assert trade["kol"] == "aoying_capital"
     assert trade["symbol"] == "ZECUSDT"
-    assert trade["timestamp"] == "2026-09-03 22:59:07"
+    assert trade["timestamp"] == "2026-09-03 14:59:07"
     assert trade["side"] == "LONG"
     assert trade["entry_price"] == 898.68
     assert trade["leverage"] == 2
     assert trade["margin_mode"] == "Cross"
     assert trade["exit_price"] == 981.42
-    assert trade["close_timestamp"] == "2026-09-04 22:43:29"
+    assert trade["close_timestamp"] == "2026-09-04 14:43:29"
     assert trade["pnl"] == 45724.41  # commas and sign parsed
     assert trade["position_size"] == 556.327
     assert trade["holding_time_seconds"] == pytest.approx(85462.0)
@@ -83,7 +83,7 @@ def test_parse_truncated_block_still_yields_sample():
     assert len(trades) == 1
     assert trades[0]["side"] == "LONG"
     assert trades[0]["entry_price"] == 334.19851
-    assert trades[0]["close_timestamp"] == "2026-06-03 17:48:45"
+    assert trades[0]["close_timestamp"] == "2026-06-03 09:48:45"
     assert trades[0]["exit_price"] is None
     assert "missing close-price tail" in warnings[0]
 
@@ -146,7 +146,7 @@ def test_parse_event_stream_opens_become_samples_closes_are_listed():
     assert len(trades) == 2
     assert trades[0]["symbol"] == "SKHYNIXUSDT"
     assert trades[0]["side"] == "LONG"
-    assert trades[0]["timestamp"] == "2026-09-04 23:09:09"
+    assert trades[0]["timestamp"] == "2026-09-04 15:09:09"
     assert trades[0]["entry_price"] == 1243.29364
     assert trades[0]["position_size"] == 240.96
     assert trades[1]["side"] == "SHORT"
@@ -167,8 +167,9 @@ Open Short
 Open a Short position of BTCUSDT Perpetual at a price of 99.0 USDT, amount of 1.0 BTC for a total value of 99.0 USDT.
 """
     trades, _, warnings = parse_event_stream(text, kol="k", year=2026)
-    # newest-first: 12-31 event belongs to the previous year (2025)
-    assert trades[0]["timestamp"].startswith("2026-01-01")
+    # newest-first: 12-31 event belongs to the previous year (2025);
+    # Beijing -> UTC conversion shifts both onto 2025-12-31 UTC
+    assert trades[0]["timestamp"].startswith("2025-12-31")  # 01-01 00:05 Beijing = 12-31 16:05 UTC
     assert trades[1]["timestamp"].startswith("2025-12-31")
     assert warnings == ["year rollover at 12-31 -> 2025"]
 

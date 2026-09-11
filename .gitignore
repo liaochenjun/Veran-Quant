@@ -227,5 +227,7 @@ data/raw/kols/
 data/processed/
 # Model registry artifacts (pickles + local state)
 data/models/
+# Experiment outputs (generated)
+data/experiments/
 # Local Claude Code settings
 .claude/
