@@ -37,6 +37,51 @@ class FoldResult:
     metrics: dict
 
 
+@dataclass(slots=True)
+class FoldBlocks:
+    """One walk-forward fold's contiguous time blocks (train earlier, test later)."""
+
+    fold_index: int
+    train_block: list[BehaviorSample]
+    test_block: list[BehaviorSample]
+    train_start: str
+    train_end: str
+    test_start: str
+    test_end: str
+
+
+def walk_forward_fold_blocks(
+    samples: list[BehaviorSample], n_splits: int = 4
+) -> list[FoldBlocks]:
+    """Split samples chronologically into n_splits+1 blocks; fold i has
+    train = blocks[0..i] and test = blocks[i+1]. Shared by the standard
+    evaluator and the recency experiments (same folds everywhere)."""
+    ordered = sorted(samples, key=lambda s: s.timestamp)
+    if not ordered:
+        return []
+    n_blocks = n_splits + 1
+    block_size = math.ceil(len(ordered) / n_blocks)
+    blocks = [ordered[i * block_size:(i + 1) * block_size] for i in range(n_blocks)]
+    blocks = [b for b in blocks if b]
+
+    folds: list[FoldBlocks] = []
+    for fold_index in range(len(blocks) - 1):
+        train_block = [s for block in blocks[:fold_index + 1] for s in block]
+        test_block = blocks[fold_index + 1]
+        folds.append(
+            FoldBlocks(
+                fold_index=fold_index,
+                train_block=train_block,
+                test_block=test_block,
+                train_start=train_block[0].timestamp,
+                train_end=train_block[-1].timestamp,
+                test_start=test_block[0].timestamp,
+                test_end=test_block[-1].timestamp,
+            )
+        )
+    return folds
+
+
 def _log_loss(model: BehaviorModel, assembler: StateFeatureAssembler,
               samples: list[BehaviorSample]) -> float:
     losses = []
@@ -77,31 +122,22 @@ def expanding_walk_forward(
     Fold i: train = blocks[0..i], test = blocks[i+1]. Test never overlaps
     train in time, and every fold refits from scratch.
     """
-    ordered = sorted(samples, key=lambda s: s.timestamp)
-    if not ordered:
-        return []
-    n_blocks = n_splits + 1
-    block_size = math.ceil(len(ordered) / n_blocks)
-    blocks = [ordered[i * block_size:(i + 1) * block_size] for i in range(n_blocks)]
-    blocks = [b for b in blocks if b]
-
+    folds = walk_forward_fold_blocks(samples, n_splits)
     results: list[FoldResult] = []
-    for fold_index in range(len(blocks) - 1):
-        train_block = [s for block in blocks[:fold_index + 1] for s in block]
-        test_block = blocks[fold_index + 1]
+    for fold in folds:
         model = model_factory()  # fresh per fold
-        model.fit(train_block)  # preprocessing fitted here, train-only
-        metrics = _fold_metrics(model, assembler, test_block)
+        model.fit(fold.train_block)  # preprocessing fitted here, train-only
+        metrics = _fold_metrics(model, assembler, fold.test_block)
         results.append(
             FoldResult(
-                fold_index=fold_index,
-                train_start=train_block[0].timestamp,
-                train_end=train_block[-1].timestamp,
-                test_start=test_block[0].timestamp,
-                test_end=test_block[-1].timestamp,
-                n_train=len(train_block),
+                fold_index=fold.fold_index,
+                train_start=fold.train_start,
+                train_end=fold.train_end,
+                test_start=fold.test_start,
+                test_end=fold.test_end,
+                n_train=len(fold.train_block),
                 n_val=0,  # no per-fold validation; selection uses the global val split
-                n_test=len(test_block),
+                n_test=len(fold.test_block),
                 metrics=metrics,
             )
         )
