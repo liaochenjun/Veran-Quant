@@ -27,7 +27,8 @@ def _keep_fn(feature_set: str) -> Callable[[str], bool]:
         return lambda k: k.startswith("market__")
     if feature_set == "market_chan":
         return lambda k: _is_market_base(k) or k.startswith("chan__")
-    if feature_set == "market_chan_geometry":
+    if feature_set in ("market_chan_geometry", "full_no_trader"):
+        # "full without trader identity" == market + chan + geometry
         return lambda k: k.startswith("market__") or k.startswith("chan__")
     if feature_set == "full":
         return lambda k: True  # market + chan + trader identity
