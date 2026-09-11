@@ -1,3 +1,6 @@
+> ⚠️ LEGACY：本报告基于时区修复前（KOL 时间戳被误当 UTC）的数据集，模型数字已作废。
+> 保留仅为方法参考；正式结论见 P2-1 / P2-1.5 报告。
+
 # Walk-Forward & Feature Ablation 实验报告
 
 数据：`behavior_dataset_full.json`（370 样本，3 KOL，30 symbol，LONG 226 / SHORT 144，2026-06-03 → 09-05）。
